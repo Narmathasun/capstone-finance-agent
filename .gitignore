@@ -1,0 +1,56 @@
+# ============ SECRETS — never commit these ============
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+credentials.json
+secrets.json
+
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+venv/
+env/
+ENV/
+.venv/
+
+# ============ Vector DB / generated data ============
+chroma_db/
+*.sqlite3
+*.faiss
+*.index
+
+# ============ Testing / coverage ============
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# ============ Streamlit ============
+.streamlit/secrets.toml
+
+# ============ IDE / OS ============
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============ Logs ============
+*.log
+logs/
+
+# ============ Jupyter (if used for experimentation) ============
+.ipynb_checkpoints/
+*.ipynb

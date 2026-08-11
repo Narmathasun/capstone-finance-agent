@@ -1,0 +1,183 @@
+"""
+Streamlit UI — three tabs:
+1. Chat: conversational interface backed by the LangGraph multi-agent app
+2. Portfolio: enter holdings -> visual dashboard (allocation, P/L, sector mix)
+3. Market: real-time quote lookup + price chart
+"""
+import uuid
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+
+from config import settings
+from src.graph import invoke as run_assistant
+from src.tools.market_data import get_live_quote, get_price_history, MarketDataError
+
+st.set_page_config(page_title="AI Financial Assistant", page_icon="💰", layout="wide")
+
+# ---------- session state ----------
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "portfolio" not in st.session_state:
+    st.session_state.portfolio = []
+
+st.title("💰 AI Financial Assistant")
+st.caption("Multi-agent system: Finance Q&A · Portfolio Analysis · Market Analysis · "
+           "Goal Planning · News Synthesizer · Tax Education")
+
+tab_chat, tab_portfolio, tab_market = st.tabs(["💬 Chat", "📊 Portfolio", "📈 Market"])
+
+# ================= CHAT TAB =================
+with tab_chat:
+    for msg in st.session_state.chat_history:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg.get("route"):
+                st.caption(f"routed to: `{msg['route']}`" + (
+                    f" · sources: {', '.join(msg['sources'][:3])}" if msg.get("sources") else ""
+                ))
+
+    user_query = st.chat_input("Ask about investing, your portfolio, market data, taxes, or goals...")
+    if user_query:
+        st.session_state.chat_history.append({"role": "user", "content": user_query})
+        with st.chat_message("user"):
+            st.markdown(user_query)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    result = run_assistant(
+                        query=user_query,
+                        user_id="streamlit-user",
+                        session_id=st.session_state.session_id,
+                        portfolio=st.session_state.portfolio,
+                    )
+                    st.markdown(result["response"])
+                    if result.get("route"):
+                        st.caption(f"routed to: `{result['route']}`" + (
+                            f" · sources: {', '.join(result['sources'][:3])}" if result.get("sources") else ""
+                        ))
+                    st.session_state.chat_history.append({
+                        "role": "assistant", "content": result["response"],
+                        "route": result.get("route"), "sources": result.get("sources"),
+                    })
+                except Exception as e:
+                    err_msg = f"Something went wrong: {e}"
+                    st.error(err_msg)
+                    st.session_state.chat_history.append({"role": "assistant", "content": err_msg})
+
+# ================= PORTFOLIO TAB =================
+with tab_portfolio:
+    st.subheader("Your Holdings")
+    with st.form("add_holding"):
+        c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+        ticker = c1.text_input("Ticker").upper().strip()
+        shares = c2.number_input("Shares", min_value=0.0, step=1.0)
+        cost_basis = c3.number_input("Cost Basis / share ($)", min_value=0.0, step=1.0)
+        submitted = c4.form_submit_button("Add")
+        if submitted and ticker and shares > 0:
+            st.session_state.portfolio.append(
+                {"ticker": ticker, "shares": shares, "cost_basis": cost_basis}
+            )
+            st.success(f"Added {shares} shares of {ticker}")
+
+    if st.session_state.portfolio:
+        df = pd.DataFrame(st.session_state.portfolio)
+        st.dataframe(df, use_container_width=True)
+
+        if st.button("🗑️ Clear Portfolio"):
+            st.session_state.portfolio = []
+            st.rerun()
+
+        if st.button("🔍 Analyze Portfolio", type="primary"):
+            with st.spinner("Fetching live data and analyzing..."):
+                rows, errors = [], []
+                for h in st.session_state.portfolio:
+                    try:
+                        q = get_live_quote(h["ticker"])
+                        market_value = q["price"] * h["shares"]
+                        cost_value = h["cost_basis"] * h["shares"]
+                        rows.append({
+                            "Ticker": h["ticker"], "Shares": h["shares"],
+                            "Price": q["price"], "Market Value": round(market_value, 2),
+                            "Cost Basis": round(cost_value, 2),
+                            "Gain/Loss": round(market_value - cost_value, 2),
+                            "Gain/Loss %": round((market_value - cost_value) / cost_value * 100, 2) if cost_value else 0,
+                        })
+                    except MarketDataError as e:
+                        errors.append(f"{h['ticker']}: {e}")
+
+                if errors:
+                    st.warning("Some tickers failed to load:\n" + "\n".join(errors))
+
+                if rows:
+                    result_df = pd.DataFrame(rows)
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("Total Value", f"${result_df['Market Value'].sum():,.2f}")
+                        fig_alloc = px.pie(result_df, values="Market Value", names="Ticker",
+                                            title="Allocation by Holding")
+                        st.plotly_chart(fig_alloc, use_container_width=True)
+                    with col2:
+                        total_gl = result_df["Gain/Loss"].sum()
+                        st.metric("Total Gain/Loss", f"${total_gl:,.2f}")
+                        fig_gl = go.Figure(go.Bar(
+                            x=result_df["Ticker"], y=result_df["Gain/Loss %"],
+                            marker_color=["green" if v >= 0 else "red" for v in result_df["Gain/Loss %"]],
+                        ))
+                        fig_gl.update_layout(title="Gain/Loss % by Holding")
+                        st.plotly_chart(fig_gl, use_container_width=True)
+
+                    st.dataframe(result_df, use_container_width=True)
+
+                    with st.spinner("Generating AI analysis..."):
+                        result = run_assistant(
+                            query="Please analyze my current portfolio for diversification and risk.",
+                            user_id="streamlit-user",
+                            session_id=st.session_state.session_id,
+                            portfolio=st.session_state.portfolio,
+                        )
+                        st.markdown("### AI Analysis")
+                        st.markdown(result["response"])
+    else:
+        st.info("Add holdings above to see your portfolio dashboard.")
+
+# ================= MARKET TAB =================
+with tab_market:
+    st.subheader("Real-Time Market Lookup")
+    mcol1, mcol2 = st.columns([1, 3])
+    lookup_ticker = mcol1.text_input("Ticker", value="AAPL", key="market_ticker").upper().strip()
+    period = mcol2.selectbox("Period", ["1mo", "3mo", "6mo", "1y", "2y"], index=2)
+
+    if st.button("Get Market Data", type="primary"):
+        try:
+            quote = get_live_quote(lookup_ticker)
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Price", f"${quote['price']}", quote["change_percent"])
+            c2.metric("Volume", f"{quote.get('volume', 0):,}")
+            c3.metric("Day High", quote.get("day_high", "—"))
+            c4.metric("Day Low", quote.get("day_low", "—"))
+
+            hist = get_price_history(lookup_ticker, period=period)
+            fig = go.Figure(go.Candlestick(
+                x=hist.index, open=hist["Open"], high=hist["High"],
+                low=hist["Low"], close=hist["Close"],
+            ))
+            fig.update_layout(title=f"{lookup_ticker} — {period}", xaxis_rangeslider_visible=False)
+            st.plotly_chart(fig, use_container_width=True)
+        except MarketDataError as e:
+            st.error(str(e))
+
+with st.sidebar:
+    st.header("⚙️ Session")
+    st.text(f"Session ID: {st.session_state.session_id[:8]}...")
+    if st.button("New Session"):
+        st.session_state.session_id = str(uuid.uuid4())
+        st.session_state.chat_history = []
+        st.rerun()
+    st.divider()
+    st.caption(f"LLM: {settings.OPENAI_MODEL}")
+    st.caption(f"Vector backend: {settings.VECTOR_BACKEND}")
