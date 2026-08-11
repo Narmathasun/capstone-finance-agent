@@ -1,4 +1,5 @@
 # Multi-Agent Financial Assistant — Capstone Build Guide
+![CI](https://github.com/Narmathasun/capstone-finance-agent/actions/workflows/ci.yml/badge.svg)
 
 This is a complete, runnable scaffold for your capstone. Every file referenced
 below already exists in this project — your job is to fill in secrets, expand
