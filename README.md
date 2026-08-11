@@ -1,5 +1,4 @@
 # Multi-Agent Financial Assistant — Capstone Build Guide
-![CI](https://github.com/Narmathasun/capstone-finance-agent/actions/workflows/ci.yml/badge.svg)
 
 This is a complete, runnable scaffold for your capstone. Every file referenced
 below already exists in this project — your job is to fill in secrets, expand
@@ -368,6 +367,12 @@ screenshot of Claude Desktop successfully calling a tool.
 ---
 
 ## 12. Suggested capstone write-up structure
+
+**Before anything else, read [`COMPLIANCE_AND_LIMITATIONS.md`](./COMPLIANCE_AND_LIMITATIONS.md).**
+It's an honest, self-assessed audit of regulatory compliance, accuracy/
+reliability, and user-trust gaps — written to be referenced directly in your
+write-up's "known limitations" section rather than glossed over.
+
 
 1. Problem statement & architecture diagram (use the diagram in §0)
 2. Design decisions: why LangGraph over a single agent, why LLM+fallback
