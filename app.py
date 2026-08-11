@@ -16,6 +16,30 @@ from src.tools.market_data import get_live_quote, get_price_history, MarketDataE
 
 st.set_page_config(page_title="AI Financial Assistant", page_icon="💰", layout="wide")
 
+# ---------- optional access gate ----------
+# When deployed publicly, every chat message and portfolio lookup consumes
+# YOUR real OpenAI / Alpha Vantage / Pinecone API quota — an open public
+# URL with no gate is an open invitation to run up real charges. Setting an
+# APP_PASSWORD secret (Streamlit Cloud dashboard, or .env locally) enables
+# a simple shared-password gate. If APP_PASSWORD is not set, the app runs
+# open — convenient for local dev, but deliberately opt-in for anything
+# public-facing.
+_app_password = settings.APP_PASSWORD
+if _app_password:
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+    if not st.session_state.authenticated:
+        st.title("💰 AI Financial Assistant")
+        st.caption("This demo is password-protected to prevent unrestricted API usage.")
+        entered = st.text_input("Enter access password", type="password")
+        if st.button("Enter"):
+            if entered == _app_password:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
+        st.stop()
+
 # ---------- session state ----------
 if "session_id" not in st.session_state:
     st.session_state.session_id = str(uuid.uuid4())

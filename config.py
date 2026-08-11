@@ -6,7 +6,26 @@ import os
 import logging
 from dotenv import load_dotenv
 
-load_dotenv(override=True) 
+load_dotenv(override=True)
+
+# ---- Streamlit Cloud secrets bridge ----
+# Locally, secrets come from .env (loaded above). On Streamlit Community
+# Cloud, secrets are entered via the app dashboard and exposed through
+# st.secrets, NOT as OS environment variables. This block copies any
+# st.secrets values into os.environ (without overwriting anything .env
+# already set) so the rest of this file — and every module that reads
+# settings.* — works identically in both environments with no branching.
+# Wrapped defensively: this must never break non-Streamlit contexts like
+# pytest, the MCP server, or plain CLI scripts, where no Streamlit runtime
+# or secrets.toml exists.
+try:
+    import streamlit.runtime as _st_runtime
+    if _st_runtime.exists():
+        import streamlit as st
+        for _key, _value in st.secrets.items():
+            os.environ.setdefault(_key, str(_value))
+except Exception:
+    pass
 
 class Settings:
     # LLM
@@ -24,6 +43,9 @@ class Settings:
     PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "finance-kb")
 
     NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
+
+    # Optional shared-password gate for public deployments (see app.py)
+    APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "300"))
