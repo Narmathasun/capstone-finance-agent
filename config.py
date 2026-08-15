@@ -15,15 +15,28 @@ load_dotenv(override=True)
 # st.secrets values into os.environ (without overwriting anything .env
 # already set) so the rest of this file — and every module that reads
 # settings.* — works identically in both environments with no branching.
-# Wrapped defensively: this must never break non-Streamlit contexts like
-# pytest, the MCP server, or plain CLI scripts, where no Streamlit runtime
-# or secrets.toml exists.
+#
+# IMPORTANT: we check whether a secrets.toml file actually exists on disk
+# BEFORE touching st.secrets at all. Merely accessing st.secrets when no
+# such file exists causes Streamlit to display a "No secrets found"
+# warning in the app UI — and since config.py is imported (running this
+# code) before app.py's required first command, st.set_page_config(), that
+# warning itself counts as a Streamlit command and breaks the "must be the
+# first command" rule with a StreamlitSetPageConfigMustBeFirstCommandError.
+# Checking file existence first avoids ever triggering that warning when
+# running locally with no secrets.toml (the normal case — local dev uses
+# .env instead).
 try:
     import streamlit.runtime as _st_runtime
     if _st_runtime.exists():
-        import streamlit as st
-        for _key, _value in st.secrets.items():
-            os.environ.setdefault(_key, str(_value))
+        _secrets_candidates = [
+            os.path.expanduser(os.path.join("~", ".streamlit", "secrets.toml")),
+            os.path.join(os.getcwd(), ".streamlit", "secrets.toml"),
+        ]
+        if any(os.path.exists(p) for p in _secrets_candidates):
+            import streamlit as st
+            for _key, _value in st.secrets.items():
+                os.environ.setdefault(_key, str(_value))
 except Exception:
     pass
 
