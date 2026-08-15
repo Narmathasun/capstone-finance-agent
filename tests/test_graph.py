@@ -22,6 +22,11 @@ class TestCheckpointerSelection:
                 checkpointer = _build_default_checkpointer()
                 assert isinstance(checkpointer, SqliteSaver)
                 assert os.path.exists(db_path)
+                # Windows holds an OS-level lock on open file handles, so
+                # the connection must be closed before TemporaryDirectory
+                # tries to delete the file on __exit__ — this is a no-op
+                # on Unix but required for the test to pass on Windows.
+                checkpointer.conn.close()
 
     def test_sqlite_backend_persists_across_separate_graph_instances(self):
         """
