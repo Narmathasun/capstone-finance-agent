@@ -1,9 +1,18 @@
 """
 Orchestration graph. Wires: entry -> router -> one of six agent nodes -> END.
-Uses LangGraph's MemorySaver checkpointer for conversation memory across
-turns, keyed by thread_id (== our session_id). Swap MemorySaver for
-SqliteSaver/PostgresSaver in production for durable, multi-instance state.
+
+Checkpointer backend is configurable via CHECKPOINTER_BACKEND in .env:
+  - "memory" (default): LangGraph's MemorySaver, in-process only, wiped on
+    restart. Appropriate for ephemeral hosts (e.g. Streamlit Community
+    Cloud) where local disk writes don't survive a redeploy anyway.
+  - "sqlite": persists conversation state to a local .sqlite file, durable
+    across restarts on a machine/server you control.
+
+Both are wired through the same build_graph()/get_app()/invoke() interface
+so callers (Streamlit UI, MCP server) never need to know which backend is
+active.
 """
+import sqlite3
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from src.state import AgentState
@@ -16,6 +25,9 @@ from src.agents import (
     news_synthesizer_agent,
     tax_education_agent,
 )
+from config import settings, get_logger
+
+logger = get_logger(__name__)
 
 _AGENT_FN = {
     "finance_qa": finance_qa_agent.run,
@@ -25,6 +37,27 @@ _AGENT_FN = {
     "news_synthesizer": news_synthesizer_agent.run,
     "tax_education": tax_education_agent.run,
 }
+
+
+def _build_default_checkpointer():
+    """
+    Constructs the checkpointer based on CHECKPOINTER_BACKEND. Uses a raw
+    sqlite3.Connection passed directly to SqliteSaver's constructor (rather
+    than SqliteSaver.from_conn_string(), which is a context manager meant
+    for short-lived `with` blocks) since this app is long-running — the
+    connection needs to stay open for the process's whole lifetime, not
+    close after a single call.
+    """
+    if settings.CHECKPOINTER_BACKEND == "sqlite":
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        conn = sqlite3.connect(settings.SQLITE_CHECKPOINT_PATH, check_same_thread=False)
+        saver = SqliteSaver(conn)
+        saver.setup()  # idempotent — creates tables on first run, no-op after
+        logger.info(f"Using SqliteSaver checkpointer at {settings.SQLITE_CHECKPOINT_PATH}")
+        return saver
+
+    logger.info("Using in-memory MemorySaver checkpointer (not persisted across restarts)")
+    return MemorySaver()
 
 
 def build_graph(checkpointer=None):
@@ -39,7 +72,7 @@ def build_graph(checkpointer=None):
     for name in _AGENT_FN:
         graph.add_edge(name, END)
 
-    return graph.compile(checkpointer=checkpointer or MemorySaver())
+    return graph.compile(checkpointer=checkpointer or _build_default_checkpointer())
 
 
 # Singleton compiled app used by the UI / MCP server

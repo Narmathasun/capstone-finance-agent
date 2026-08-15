@@ -47,6 +47,16 @@ class Settings:
     # Optional shared-password gate for public deployments (see app.py)
     APP_PASSWORD = os.getenv("APP_PASSWORD", "")
 
+    # Conversation memory / session persistence backend
+    # "memory" (default): in-process only, wiped on restart — fine for
+    #   ephemeral environments like Streamlit Community Cloud, where local
+    #   disk writes don't survive a redeploy anyway.
+    # "sqlite": persists to a local .sqlite file — durable across restarts
+    #   on a machine/server you control (e.g. running the MCP server or
+    #   Streamlit locally, or on a VM/container with a real persistent disk).
+    CHECKPOINTER_BACKEND = os.getenv("CHECKPOINTER_BACKEND", "memory")
+    SQLITE_CHECKPOINT_PATH = os.getenv("SQLITE_CHECKPOINT_PATH", "./checkpoints.sqlite")
+
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "300"))
 

@@ -1,6 +1,67 @@
 from unittest.mock import patch, MagicMock
+import tempfile
+import os
 from langgraph.checkpoint.memory import MemorySaver
-from src.graph import build_graph, invoke
+from src.graph import build_graph, invoke, _build_default_checkpointer
+
+
+class TestCheckpointerSelection:
+    def test_defaults_to_memory_saver(self):
+        with patch("src.graph.settings") as mock_settings:
+            mock_settings.CHECKPOINTER_BACKEND = "memory"
+            checkpointer = _build_default_checkpointer()
+            assert isinstance(checkpointer, MemorySaver)
+
+    def test_selects_sqlite_saver_when_configured(self):
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "test_checkpoints.sqlite")
+            with patch("src.graph.settings") as mock_settings:
+                mock_settings.CHECKPOINTER_BACKEND = "sqlite"
+                mock_settings.SQLITE_CHECKPOINT_PATH = db_path
+                checkpointer = _build_default_checkpointer()
+                assert isinstance(checkpointer, SqliteSaver)
+                assert os.path.exists(db_path)
+
+    def test_sqlite_backend_persists_across_separate_graph_instances(self):
+        """
+        The core guarantee this feature exists for: state written by one
+        compiled graph instance (simulating one app process) must be
+        readable by a second, independently-built graph instance pointed
+        at the same database file (simulating a restart).
+        """
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = os.path.join(tmp, "test_checkpoints.sqlite")
+            config = {"configurable": {"thread_id": "persist-test"}}
+
+            import sqlite3
+            conn1 = sqlite3.connect(db_path, check_same_thread=False)
+            saver1 = SqliteSaver(conn1)
+            saver1.setup()
+            graph1 = build_graph(checkpointer=saver1)
+            with patch("src.router._router_llm") as mock_router, \
+                 patch("src.agents.finance_qa_agent.get_llm") as mock_llm, \
+                 patch("src.agents.finance_qa_agent.retrieve_context") as mock_ctx:
+                mock_router.invoke.return_value = MagicMock(route="finance_qa", confidence=0.9)
+                mock_ctx.return_value = []
+                mock_llm.return_value = MagicMock(
+                    invoke=MagicMock(return_value=MagicMock(content="persisted answer"))
+                )
+                graph1.invoke(
+                    {"messages": [], "user_id": "u1", "session_id": "persist-test",
+                     "query": "test query", "portfolio": []},
+                    config=config,
+                )
+            conn1.close()
+
+            # Fresh connection + fresh compiled graph, simulating a restart
+            conn2 = sqlite3.connect(db_path, check_same_thread=False)
+            saver2 = SqliteSaver(conn2)
+            graph2 = build_graph(checkpointer=saver2)
+            recovered = graph2.get_state(config)
+            assert recovered.values.get("final_response") == "persisted answer"
+            conn2.close()
 
 
 class TestBuildGraph:
