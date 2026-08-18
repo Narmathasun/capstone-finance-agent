@@ -1,10 +1,35 @@
 """
 Central configuration. Loads from environment / .env file.
 Never hard-code secrets here — this file only reads them.
+
+Precedence (highest wins): real OS environment variables > .env file >
+config.yaml defaults > hardcoded fallback defaults below. config.yaml is
+for NON-SECRET operational defaults only (model name, cache TTL, log
+level, etc.) — it's meant to be safely committed to version control.
+API keys and other secrets always come from .env (local) or a secrets
+manager (cloud), never from config.yaml.
 """
 import os
 import logging
+import yaml
 from dotenv import load_dotenv
+
+# ---- YAML config defaults (lowest precedence, safe to commit) ----
+# Loaded FIRST, using setdefault, so both a real .env file and any
+# already-set shell environment variable can still override any of these.
+_CONFIG_YAML_PATH = os.getenv(
+    "CONFIG_YAML_PATH", os.path.join(os.path.dirname(__file__), "config.yaml")
+)
+try:
+    if os.path.exists(_CONFIG_YAML_PATH):
+        with open(_CONFIG_YAML_PATH, "r") as _f:
+            _yaml_config = yaml.safe_load(_f) or {}
+        for _key, _value in _yaml_config.items():
+            os.environ.setdefault(_key, str(_value))
+except Exception as _e:
+    # Never let a malformed YAML file take down the whole app — fall back
+    # to hardcoded defaults / .env / real env vars as if it weren't there.
+    print(f"Warning: could not load {_CONFIG_YAML_PATH}: {_e}")
 
 load_dotenv(override=True)
 

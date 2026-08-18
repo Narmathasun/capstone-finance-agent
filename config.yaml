@@ -1,0 +1,26 @@
+# Non-secret operational defaults for the multi-agent financial assistant.
+#
+# SAFE TO COMMIT — this file must never contain API keys or other secrets.
+# Real secrets (OPENAI_API_KEY, ALPHA_VANTAGE_API_KEY, PINECONE_API_KEY,
+# APP_PASSWORD, etc.) belong in .env (local) or your platform's secrets
+# manager (Streamlit Cloud dashboard, Docker --env-file, etc.) — never here.
+#
+# Precedence: a real environment variable or a value set in .env always
+# overrides the same key here. This file only supplies defaults when
+# nothing else has set that variable. See config.py for the merge logic.
+#
+# Keys below must match the environment variable names used throughout
+# the codebase (config.py reads these via os.getenv(...)).
+
+OPENAI_MODEL: gpt-4o-mini
+
+VECTOR_BACKEND: chroma
+CHROMA_PERSIST_DIR: ./chroma_db
+PINECONE_ENV: us-east-1
+PINECONE_INDEX_NAME: finance-kb
+
+CHECKPOINTER_BACKEND: memory
+SQLITE_CHECKPOINT_PATH: ./checkpoints.sqlite
+
+LOG_LEVEL: INFO
+CACHE_TTL_SECONDS: 300

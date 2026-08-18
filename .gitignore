@@ -39,6 +39,10 @@ coverage.xml
 # ============ Streamlit ============
 .streamlit/secrets.toml
 
+# ============ Benchmarks (generated reports, not the script) ============
+benchmarks/results/*.md
+!benchmarks/results/.gitkeep
+
 # ============ IDE / OS ============
 .vscode/
 .idea/

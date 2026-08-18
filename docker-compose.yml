@@ -1,0 +1,30 @@
+services:
+  finance-assistant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    env_file:
+      # Real secrets live here on the host machine, never in the image or
+      # in this compose file. Copy .env.example to .env and fill it in
+      # before running `docker compose up`.
+      - .env
+    volumes:
+      # Persists the SQLite checkpoint database (conversation memory)
+      # across container restarts/rebuilds, since the container's
+      # writable layer is discarded on `docker compose down` otherwise.
+      # Only relevant if CHECKPOINTER_BACKEND=sqlite in your .env.
+      - checkpoint-data:/app/data
+      # Persists the local Chroma vector store the same way, if
+      # VECTOR_BACKEND=chroma. Not needed if using Pinecone.
+      - chroma-data:/app/chroma_db
+    environment:
+      # Overrides the default path so the sqlite file lands inside the
+      # mounted volume above rather than the container's ephemeral layer.
+      - SQLITE_CHECKPOINT_PATH=/app/data/checkpoints.sqlite
+    restart: unless-stopped
+
+volumes:
+  checkpoint-data:
+  chroma-data:

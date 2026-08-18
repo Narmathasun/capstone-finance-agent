@@ -1,0 +1,35 @@
+# Never bake secrets into the image
+.env
+.env.local
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.egg-info/
+
+# Generated/runtime artifacts — these should come from volumes or be
+# rebuilt fresh in the container, not copied in stale from the host
+chroma_db/
+checkpoints.sqlite
+*.sqlite
+
+# Testing artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+benchmarks/results/
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+
+# Docs not needed at runtime (keeps image smaller; still in the repo)
+CAPSTONE_REPORT.docx

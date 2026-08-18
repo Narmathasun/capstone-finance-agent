@@ -1,0 +1,15 @@
+{
+  "description": "Sample portfolio for manually testing the Portfolio Analysis Agent and the Streamlit Portfolio tab. Values are illustrative, not real financial data.",
+  "holdings": [
+    { "ticker": "AAPL", "shares": 15, "cost_basis": 145.30 },
+    { "ticker": "MSFT", "shares": 8, "cost_basis": 310.75 },
+    { "ticker": "GOOGL", "shares": 5, "cost_basis": 128.40 },
+    { "ticker": "TSLA", "shares": 3, "cost_basis": 220.00 },
+    { "ticker": "VOO", "shares": 20, "cost_basis": 410.10 }
+  ],
+  "notes": [
+    "Deliberately mixes individual stocks (AAPL, MSFT, GOOGL, TSLA) with a broad-market ETF (VOO) so a portfolio analysis run against this set has something meaningful to say about diversification.",
+    "TSLA is included at a relatively small share count so it's useful for testing concentration-risk commentary without dominating the whole portfolio.",
+    "To use: paste these holdings into the Streamlit app's Portfolio tab one at a time, or load this file directly in a test/demo script via json.load()."
+  ]
+}
