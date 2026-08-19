@@ -1,0 +1,28 @@
+# Template only — this is NOT the real credentials file.
+#
+# The real users.yaml is auto-created at first run (see
+# src/auth/auth_manager.py::ensure_users_yaml_exists) and is gitignored,
+# since it contains real registered users' bcrypt-hashed passwords and
+# emails. This template exists purely so anyone cloning the repo can see
+# the expected structure without any real user data being committed.
+#
+# To actually enable multi-user accounts, set ENABLE_MULTI_USER_AUTH=true
+# in your .env — you do NOT need to manually create or edit this file;
+# the app creates it automatically, and streamlit-authenticator writes new
+# registrations into it directly.
+
+credentials:
+  usernames: {}
+    # Populated automatically on registration, e.g.:
+    # jsmith:
+    #   email: jsmith@example.com
+    #   first_name: John
+    #   last_name: Smith
+    #   password: $2b$12$... (bcrypt hash — never plain text)
+    #   roles: [user]
+    #   logged_in: false
+
+cookie:
+  name: finance_assistant_auth
+  key: dev-only-insecure-default-change-me  # overridden by AUTH_COOKIE_KEY in .env
+  expiry_days: 30

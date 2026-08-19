@@ -2,9 +2,11 @@
 Streamlit UI — three tabs:
 1. Chat: conversational interface backed by the LangGraph multi-agent app
 2. Portfolio: enter holdings -> visual dashboard (allocation, P/L, sector mix)
-3. Market: real-time quote lookup + price chart
+3. Market: watchlist of popular stocks + real-time quote lookup + price chart
 """
+import json
 import uuid
+from pathlib import Path
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -12,33 +14,85 @@ import plotly.graph_objects as go
 
 from config import settings
 from src.graph import invoke as run_assistant
-from src.tools.market_data import get_live_quote, get_price_history, MarketDataError
+from src.tools.market_data import get_live_quote, get_price_history, get_portfolio_quotes, MarketDataError
 
 st.set_page_config(page_title="AI Financial Assistant", page_icon="💰", layout="wide")
 
-# ---------- optional access gate ----------
-# When deployed publicly, every chat message and portfolio lookup consumes
-# YOUR real OpenAI / Alpha Vantage / Pinecone API quota — an open public
-# URL with no gate is an open invitation to run up real charges. Setting an
-# APP_PASSWORD secret (Streamlit Cloud dashboard, or .env locally) enables
-# a simple shared-password gate. If APP_PASSWORD is not set, the app runs
-# open — convenient for local dev, but deliberately opt-in for anything
-# public-facing.
-_app_password = settings.APP_PASSWORD
-if _app_password:
-    if "authenticated" not in st.session_state:
-        st.session_state.authenticated = False
-    if not st.session_state.authenticated:
-        st.title("💰 AI Financial Assistant")
-        st.caption("This demo is password-protected to prevent unrestricted API usage.")
-        entered = st.text_input("Enter access password", type="password")
-        if st.button("Enter"):
-            if entered == _app_password:
-                st.session_state.authenticated = True
-                st.rerun()
-            else:
-                st.error("Incorrect password.")
+STOCK_UNIVERSE_PATH = Path(__file__).parent / "sample_data" / "stock_universe.json"
+
+
+@st.cache_data
+def load_stock_universe() -> dict:
+    if STOCK_UNIVERSE_PATH.exists():
+        with open(STOCK_UNIVERSE_PATH) as f:
+            return json.load(f)
+    return {"stocks": [], "default_watchlist": []}
+
+
+# ---------- authentication ----------
+# Two modes, chosen via ENABLE_MULTI_USER_AUTH in .env:
+#
+# 1. Multi-user accounts (ENABLE_MULTI_USER_AUTH=true): real per-person
+#    signup + login via streamlit-authenticator, with each user's
+#    portfolio persisted separately (src/auth/user_data.py) and their
+#    conversation memory scoped to their own username.
+#
+# 2. Single shared password (default, ENABLE_MULTI_USER_AUTH=false):
+#    the original lightweight gate — one shared APP_PASSWORD for
+#    everyone, no individual accounts. Kept as the default so existing
+#    deployments (e.g. Streamlit Cloud) don't change behavior unless you
+#    deliberately opt in to real accounts.
+current_username = "guest"
+current_display_name = "Guest"
+
+if settings.ENABLE_MULTI_USER_AUTH:
+    from src.auth.auth_manager import get_authenticator
+
+    authenticator = get_authenticator()
+
+    st.title("💰 AI Financial Assistant")
+
+    auth_tab_login, auth_tab_register = st.tabs(["Log in", "Create account"])
+    with auth_tab_login:
+        authenticator.login(location="main")
+    with auth_tab_register:
+        try:
+            new_email, new_username, new_name = authenticator.register_user(
+                location="main", captcha=False, roles=["user"]
+            )
+            if new_username:
+                st.success(f"Account created for {new_username} — you can now log in on the Log in tab.")
+        except Exception as e:
+            st.error(f"Registration error: {e}")
+
+    auth_status = st.session_state.get("authentication_status")
+    if auth_status is False:
+        st.error("Username or password is incorrect.")
         st.stop()
+    elif auth_status is None:
+        st.info("Please log in or create an account to continue.")
+        st.stop()
+
+    # auth_status is True from here on
+    current_username = st.session_state.get("username", "guest")
+    current_display_name = st.session_state.get("name", current_username)
+else:
+    # ---------- legacy single shared-password gate ----------
+    _app_password = settings.APP_PASSWORD
+    if _app_password:
+        if "authenticated" not in st.session_state:
+            st.session_state.authenticated = False
+        if not st.session_state.authenticated:
+            st.title("💰 AI Financial Assistant")
+            st.caption("This demo is password-protected to prevent unrestricted API usage.")
+            entered = st.text_input("Enter access password", type="password")
+            if st.button("Enter"):
+                if entered == _app_password:
+                    st.session_state.authenticated = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect password.")
+            st.stop()
 
 # ---------- session state ----------
 if "session_id" not in st.session_state:
@@ -46,11 +100,34 @@ if "session_id" not in st.session_state:
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 if "portfolio" not in st.session_state:
-    st.session_state.portfolio = []
+    if settings.ENABLE_MULTI_USER_AUTH:
+        # Real accounts get their saved portfolio back on every login,
+        # rather than starting from empty each session.
+        from src.auth.user_data import load_user_portfolio
+        st.session_state.portfolio = load_user_portfolio(current_username)
+    else:
+        st.session_state.portfolio = []
+
+# Conversation memory is scoped per-user when multi-user auth is on, so two
+# different people never share a thread_id and can't see each other's
+# chat history even if a session_id were somehow guessed or reused.
+_graph_session_id = (
+    f"{current_username}:{st.session_state.session_id}"
+    if settings.ENABLE_MULTI_USER_AUTH else st.session_state.session_id
+)
+
+
+def _persist_portfolio():
+    if settings.ENABLE_MULTI_USER_AUTH:
+        from src.auth.user_data import save_user_portfolio
+        save_user_portfolio(current_username, st.session_state.portfolio)
+
 
 st.title("💰 AI Financial Assistant")
 st.caption("Multi-agent system: Finance Q&A · Portfolio Analysis · Market Analysis · "
            "Goal Planning · News Synthesizer · Tax Education")
+if settings.ENABLE_MULTI_USER_AUTH:
+    st.caption(f"Logged in as **{current_display_name}**")
 
 # ---------- persistent compliance disclaimer ----------
 # Shown on every page load, every tab — not something a user can dismiss and
@@ -91,8 +168,8 @@ with tab_chat:
                 try:
                     result = run_assistant(
                         query=user_query,
-                        user_id="streamlit-user",
-                        session_id=st.session_state.session_id,
+                        user_id=current_username,
+                        session_id=_graph_session_id,
                         portfolio=st.session_state.portfolio,
                     )
                     st.markdown(result["response"])
@@ -112,9 +189,17 @@ with tab_chat:
 # ================= PORTFOLIO TAB =================
 with tab_portfolio:
     st.subheader("Your Holdings")
+    universe = load_stock_universe()
+    ticker_options = [s["ticker"] for s in universe.get("stocks", [])]
+
     with st.form("add_holding"):
         c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
-        ticker = c1.text_input("Ticker").upper().strip()
+        if ticker_options:
+            picked = c1.selectbox("Ticker", options=["(type below)"] + ticker_options)
+            typed = c1.text_input("Or type a ticker not in the list", "").upper().strip()
+            ticker = typed if typed else (picked if picked != "(type below)" else "")
+        else:
+            ticker = c1.text_input("Ticker").upper().strip()
         shares = c2.number_input("Shares", min_value=0.0, step=1.0)
         cost_basis = c3.number_input("Cost Basis / share ($)", min_value=0.0, step=1.0)
         submitted = c4.form_submit_button("Add")
@@ -122,6 +207,7 @@ with tab_portfolio:
             st.session_state.portfolio.append(
                 {"ticker": ticker, "shares": shares, "cost_basis": cost_basis}
             )
+            _persist_portfolio()
             st.success(f"Added {shares} shares of {ticker}")
 
     if st.session_state.portfolio:
@@ -130,6 +216,7 @@ with tab_portfolio:
 
         if st.button("🗑️ Clear Portfolio"):
             st.session_state.portfolio = []
+            _persist_portfolio()
             st.rerun()
 
         if st.button("🔍 Analyze Portfolio", type="primary"):
@@ -176,8 +263,8 @@ with tab_portfolio:
                     with st.spinner("Generating AI analysis..."):
                         result = run_assistant(
                             query="Please analyze my current portfolio for diversification and risk.",
-                            user_id="streamlit-user",
-                            session_id=st.session_state.session_id,
+                            user_id=current_username,
+                            session_id=_graph_session_id,
                             portfolio=st.session_state.portfolio,
                         )
                         st.markdown("### AI Analysis")
@@ -187,7 +274,34 @@ with tab_portfolio:
 
 # ================= MARKET TAB =================
 with tab_market:
-    st.subheader("Real-Time Market Lookup")
+    st.subheader("📋 Market Watchlist")
+    st.caption("Live prices for a curated list of well-known stocks and ETFs across sectors.")
+    universe = load_stock_universe()
+    watchlist_tickers = universe.get("default_watchlist", [])
+
+    if watchlist_tickers:
+        if st.button("🔄 Refresh Watchlist"):
+            st.cache_data.clear()
+        with st.spinner("Loading watchlist quotes..."):
+            batch = get_portfolio_quotes(watchlist_tickers)
+        name_by_ticker = {s["ticker"]: s["name"] for s in universe.get("stocks", [])}
+        sector_by_ticker = {s["ticker"]: s["sector"] for s in universe.get("stocks", [])}
+        watch_rows = []
+        for tk, q in batch["quotes"].items():
+            watch_rows.append({
+                "Ticker": tk,
+                "Name": name_by_ticker.get(tk, ""),
+                "Sector": sector_by_ticker.get(tk, ""),
+                "Price": q.get("price"),
+                "Change %": q.get("change_percent"),
+            })
+        if watch_rows:
+            st.dataframe(pd.DataFrame(watch_rows), use_container_width=True, hide_index=True)
+        if batch["errors"]:
+            st.caption(f"Unavailable right now: {', '.join(batch['errors'].keys())}")
+
+    st.divider()
+    st.subheader("🔍 Individual Stock Lookup")
     mcol1, mcol2 = st.columns([1, 3])
     lookup_ticker = mcol1.text_input("Ticker", value="AAPL", key="market_ticker").upper().strip()
     period = mcol2.selectbox("Period", ["1mo", "3mo", "6mo", "1y", "2y"], index=2)
@@ -213,6 +327,9 @@ with tab_market:
 
 with st.sidebar:
     st.header("⚙️ Session")
+    if settings.ENABLE_MULTI_USER_AUTH:
+        st.text(f"User: {current_display_name} ({current_username})")
+        authenticator.logout(button_name="Log out", location="sidebar")
     st.text(f"Session ID: {st.session_state.session_id[:8]}...")
     if st.button("New Session"):
         st.session_state.session_id = str(uuid.uuid4())

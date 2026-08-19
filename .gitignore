@@ -7,6 +7,11 @@
 credentials.json
 secrets.json
 
+# ============ Multi-user accounts — real user data, never commit ============
+users.yaml
+user_data/*.json
+!user_data/.gitkeep
+
 # ============ Python ============
 __pycache__/
 *.py[cod]
@@ -58,3 +63,5 @@ logs/
 # ============ Jupyter (if used for experimentation) ============
 .ipynb_checkpoints/
 *.ipynb
+
+checkpoints.sqlite

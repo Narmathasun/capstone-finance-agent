@@ -95,6 +95,16 @@ class Settings:
     CHECKPOINTER_BACKEND = os.getenv("CHECKPOINTER_BACKEND", "memory")
     SQLITE_CHECKPOINT_PATH = os.getenv("SQLITE_CHECKPOINT_PATH", "./checkpoints.sqlite")
 
+    # Real multi-user accounts (signup + login), opt-in — see src/auth/.
+    # When False (default), app.py falls back to the single shared
+    # APP_PASSWORD gate above, preserving existing deployment behavior.
+    ENABLE_MULTI_USER_AUTH = os.getenv("ENABLE_MULTI_USER_AUTH", "false").lower() == "true"
+    USERS_YAML_PATH = os.getenv("USERS_YAML_PATH", "./users.yaml")
+    # Signs/encrypts the auth cookie — set a real random secret in .env for
+    # any real deployment. The fallback here is fine for local dev only.
+    AUTH_COOKIE_KEY = os.getenv("AUTH_COOKIE_KEY", "dev-only-insecure-default-change-me")
+    USER_DATA_DIR = os.getenv("USER_DATA_DIR", "./user_data")
+
     LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
     CACHE_TTL_SECONDS = int(os.getenv("CACHE_TTL_SECONDS", "300"))
 
