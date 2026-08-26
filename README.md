@@ -14,36 +14,6 @@ the knowledge base, run it, test it, and layer on polish before submission.
 
 ![Architecture Diagram](images/architecture-diagram.png)
 
-```
-
-
-
-
-
-User Query (Streamlit chat / MCP tool call)
-      │
-      ▼
- ┌─────────────┐
- │   Router    │  LLM classifies query → 1 of 6 routes (keyword fallback if LLM fails)
- └──────┬──────┘
-        │  (LangGraph conditional edge)
-        ▼
- ┌──────────────────────────────────────────────────────────────┐
- │  finance_qa | portfolio_analysis | market_analysis |          │
- │  goal_planning | news_synthesizer | tax_education             │  ← 6 agent nodes
- └──────┬────────────────────┬────────────────────┬─────────────┘
-        │ RAG retrieval       │ live market data    │ news feed
-        ▼                     ▼                    ▼
-   Chroma/Pinecone       yfinance/AlphaVantage   Yahoo RSS
-        │                     │                    │
-        └──────────► LLM Processing (GPT) ◄─────────┘
-                          │
-                          ▼
-                  final_response + sources
-                          │
-                          ▼
-              Streamlit UI  /  MCP tool result
-```
 
 State (conversation history, session, portfolio, retrieved docs, route) flows
 through a single `AgentState` TypedDict (`src/state.py`) that LangGraph
@@ -52,9 +22,6 @@ per-user sessions with almost no extra code.
 
 **Project layout:**
 ```
-
-![Architecture Diagram](images/architecture-diagram.png)
-
 capstone_finance_agent/
 ├── app.py                    # Streamlit UI (chat, portfolio, market tabs)
 ├── config.py                 # env/settings loader
