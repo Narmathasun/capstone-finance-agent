@@ -13,9 +13,9 @@ the knowledge base, run it, test it, and layer on polish before submission.
 ## 0. How the pieces fit together
 
 ```
-
-
 ![Architecture Diagram](images/architecture-diagram.png)
+
+
 
 
 User Query (Streamlit chat / MCP tool call)
