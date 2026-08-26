@@ -12,8 +12,10 @@ the knowledge base, run it, test it, and layer on polish before submission.
 
 ## 0. How the pieces fit together
 
-```
 ![Architecture Diagram](images/architecture-diagram.png)
+
+```
+
 
 
 
@@ -50,6 +52,9 @@ per-user sessions with almost no extra code.
 
 **Project layout:**
 ```
+
+![Architecture Diagram](images/architecture-diagram.png)
+
 capstone_finance_agent/
 ├── app.py                    # Streamlit UI (chat, portfolio, market tabs)
 ├── config.py                 # env/settings loader
