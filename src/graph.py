@@ -12,6 +12,7 @@ Both are wired through the same build_graph()/get_app()/invoke() interface
 so callers (Streamlit UI, MCP server) never need to know which backend is
 active.
 """
+import os
 import sqlite3
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -38,6 +39,24 @@ _AGENT_FN = {
     "tax_education": tax_education_agent.run,
 }
 
+# Anchors relative SQLITE_CHECKPOINT_PATH values to this file's own
+# directory (the project root), rather than the process's actual working
+# directory. This matters because MCP clients — Claude Desktop in
+# particular, on the sandboxed Microsoft Store build — do not reliably
+# honor the configured `cwd` when spawning the server subprocess (the
+# same root cause behind an earlier `ModuleNotFoundError: No module named
+# 'src'` bug, fixed there via an explicit PYTHONPATH). A relative sqlite
+# path resolved against the wrong working directory produces
+# `sqlite3.OperationalError: unable to open database file` — reproduced
+# and confirmed as the exact failure mode this anchor avoids.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _resolve_sqlite_path(configured_path: str) -> str:
+    if os.path.isabs(configured_path):
+        return configured_path
+    return os.path.join(_PROJECT_ROOT, configured_path)
+
 
 def _build_default_checkpointer():
     """
@@ -47,14 +66,33 @@ def _build_default_checkpointer():
     for short-lived `with` blocks) since this app is long-running — the
     connection needs to stay open for the process's whole lifetime, not
     close after a single call.
+
+    If the sqlite backend is configured but the file genuinely can't be
+    opened for any reason (permissions, a still-wrong resolved path on an
+    unusual setup, disk issues), this falls back to MemorySaver rather
+    than crashing every single agent call — matching this project's
+    established resilience philosophy (see market_data.py's fallback
+    chain, every agent's try/except, etc.) rather than introducing a
+    single new hard-failure point.
     """
     if settings.CHECKPOINTER_BACKEND == "sqlite":
-        from langgraph.checkpoint.sqlite import SqliteSaver
-        conn = sqlite3.connect(settings.SQLITE_CHECKPOINT_PATH, check_same_thread=False)
-        saver = SqliteSaver(conn)
-        saver.setup()  # idempotent — creates tables on first run, no-op after
-        logger.info(f"Using SqliteSaver checkpointer at {settings.SQLITE_CHECKPOINT_PATH}")
-        return saver
+        resolved_path = _resolve_sqlite_path(settings.SQLITE_CHECKPOINT_PATH)
+        try:
+            os.makedirs(os.path.dirname(resolved_path) or ".", exist_ok=True)
+            from langgraph.checkpoint.sqlite import SqliteSaver
+            conn = sqlite3.connect(resolved_path, check_same_thread=False)
+            saver = SqliteSaver(conn)
+            saver.setup()  # idempotent — creates tables on first run, no-op after
+            logger.info(f"Using SqliteSaver checkpointer at {resolved_path}")
+            return saver
+        except Exception as e:
+            logger.error(
+                f"Could not open sqlite checkpoint database at {resolved_path} "
+                f"({e}); falling back to in-memory checkpointer for this run. "
+                "Conversation memory will not persist across restarts until "
+                "this is resolved."
+            )
+            return MemorySaver()
 
     logger.info("Using in-memory MemorySaver checkpointer (not persisted across restarts)")
     return MemorySaver()
